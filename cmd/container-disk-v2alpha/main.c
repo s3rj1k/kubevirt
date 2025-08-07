@@ -26,14 +26,31 @@ void error_log(const char *format, ...)
 
     time_t ltime; /* calendar time */
     ltime=time(NULL); /* get current cal time */
-    fprintf(stderr, "%s",asctime(localtime(&ltime)));
-    fprintf(stderr, "error: ");
+    char *time_str = asctime(localtime(&ltime));
+    time_str[strlen(time_str)-1] = '\0'; /* remove newline */
+    fprintf(stderr, "%s error: ",time_str);
     va_start(arglist, format);
     vfprintf(stderr, format, arglist);
     va_end(arglist);
 }
 
+void info_log(const char *format, ...)
+{
+    va_list arglist;
+
+    time_t ltime; /* calendar time */
+    ltime=time(NULL); /* get current cal time */
+    char *time_str = asctime(localtime(&ltime));
+    time_str[strlen(time_str)-1] = '\0'; /* remove newline */
+    fprintf(stdout, "%s info: ",time_str);
+    va_start(arglist, format);
+    vfprintf(stdout, format, arglist);
+    va_end(arglist);
+    fflush(stdout);
+}
+
 void sig_handler(int signo) {
+    info_log("received signal %d, cleaning up socket and exiting\n", signo);
     if (copy_path != NULL) {
         unlink(copy_path);
     }
@@ -93,10 +110,7 @@ int main(int argc, char **argv) {
     char *copy_path_dir;
     char *copy_path_tmp;
 
-    if (signal(SIGTERM, sig_handler) == SIG_ERR) {
-        error_log("failed to register SIGTERM callback\n");
-        exit(1);
-    }
+    info_log("container disk daemon starting up\n");
 
     int c;
     while(1) {
@@ -128,6 +142,16 @@ int main(int argc, char **argv) {
                 strncpy(copy_path, optarg, strlen(optarg));
                 copy_path_tmp = strndup(copy_path, strlen(copy_path));
                 copy_path_dir = dirname(copy_path_tmp);
+                strcat(copy_path, ".sock");
+                info_log("socket path set to: %s\n", copy_path);
+
+                if (signal(SIGTERM, sig_handler) == SIG_ERR) {
+                    error_log("failed to register SIGTERM callback\n");
+                    exit(1);
+                }
+
+                info_log("registered SIGTERM handler\n");
+
                 break;
             case 'n':
 		exit(0);
@@ -141,10 +165,13 @@ int main(int argc, char **argv) {
     struct stat st = {0};
 
     if (stat(copy_path_dir, &st) == -1) {
+        info_log("creating socket directory: %s\n", copy_path_dir);
         if (mkdir(copy_path_dir, 0777) != 0) {
             error_log("failed to create disk directory %s\n", copy_path_dir);
             exit(1);
         }
+    } else {
+        info_log("socket directory already exists: %s\n", copy_path_dir);
     }
     free(copy_path_tmp);
 
@@ -156,9 +183,9 @@ int main(int argc, char **argv) {
     */
     memset(&address, 0, sizeof(struct sockaddr_un));
     address.sun_family = AF_UNIX;
-    strcat(copy_path, ".sock");
     strncpy(address.sun_path, copy_path, sizeof(address.sun_path));
 
+    info_log("creating unix domain socket at: %s\n", copy_path);
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd == -1) {
         error_log("failed to create socket on %s\n", copy_path);
@@ -172,11 +199,15 @@ int main(int argc, char **argv) {
         error_log("failed to bind socket %s\n", copy_path);
         exit(1);
     }
+    info_log("socket bound successfully\n");
 
     if (listen(fd, LISTEN_BACKLOG) == -1) {
         error_log("failed to listen socket %s\n", copy_path);
         exit(1);
     }
 
+    info_log("listening on socket with backlog %d\n", LISTEN_BACKLOG);
+
+    info_log("starting socket monitoring\n");
     socket_check(fd, (void *)copy_path);
 }
