@@ -20,12 +20,14 @@
 package watch
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	golog "log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	v1 "kubevirt.io/api/core/v1"
@@ -109,9 +111,10 @@ const (
 
 	defaultHost = "0.0.0.0"
 
-	launcherImage       = "virt-launcher"
-	exporterImage       = "virt-exportserver"
-	launcherQemuTimeout = 240
+	launcherImage                = "virt-launcher"
+	exporterImage                = "virt-exportserver"
+	launcherQemuTimeout          = 240
+	launcherQemuTimeoutEnvVar    = "LAUNCHER_QEMU_TIMEOUT"
 
 	migrationControllerRestTimeout = 30 * time.Second
 
@@ -975,6 +978,14 @@ func (vca *VirtControllerApp) leaderProbe(_ *restful.Request, response *restful.
 	}
 }
 
+func getIntFromEnv(envVar string) int {
+	if val, err := strconv.Atoi(os.Getenv(envVar)); err == nil {
+		return val
+	}
+
+	return 0
+}
+
 func (vca *VirtControllerApp) AddFlags() {
 	vca.InitFlags()
 
@@ -991,8 +1002,10 @@ func (vca *VirtControllerApp) AddFlags() {
 	flag.StringVar(&vca.exporterImage, "exporter-image", exporterImage,
 		"Container for exporting VMs and VM images")
 
-	flag.IntVar(&vca.launcherQemuTimeout, "launcher-qemu-timeout", launcherQemuTimeout,
-		"Amount of time to wait for qemu")
+	flag.IntVar(&vca.launcherQemuTimeout, "launcher-qemu-timeout",
+		cmp.Or(getIntFromEnv(launcherQemuTimeoutEnvVar), launcherQemuTimeout),
+		"Amount of time to wait for qemu",
+	)
 
 	flag.StringVar(&vca.imagePullSecret, "image-pull-secret", imagePullSecret,
 		"Secret to use for pulling virt-launcher and/or registry disks")
