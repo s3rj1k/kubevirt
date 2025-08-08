@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -91,6 +92,16 @@ type KernelBootChecksum struct {
 	Kernel *uint32
 }
 
+// isDaemonListening checks if a container disk daemon is still listening on the socket
+func isDaemonListening(socketPath string) bool {
+	conn, err := net.DialTimeout("unix", socketPath, time.Second*1)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
 func NewMounter(isoDetector isolation.PodIsolationDetector, mountStateDir string, clusterConfig *virtconfig.ClusterConfig) Mounter {
 	return &mounter{
 		mountRecords:               make(map[types.UID]*vmiMountTargetRecord),
@@ -117,8 +128,16 @@ func (m *mounter) deleteMountTargetRecord(vmi *v1.VirtualMachineInstance) error 
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		for _, target := range record.MountTargetEntries {
+			log.DefaultLogger().Infof("Removing target file: %s", target.TargetFile)
 			os.Remove(target.TargetFile)
-			os.Remove(target.SocketFile)
+
+			// Only remove socket if daemon is not listening on it
+			if isDaemonListening(target.SocketFile) {
+				log.DefaultLogger().Infof("Daemon still listening on socket %s, skipping socket removal", target.SocketFile)
+			} else {
+				log.DefaultLogger().Infof("Removing socket file: %s", target.SocketFile)
+				os.Remove(target.SocketFile)
+			}
 		}
 
 		if err := m.checkpointManager.Delete(string(vmi.UID)); err != nil {
@@ -312,6 +331,7 @@ func (m *mounter) MountAndVerify(vmi *v1.VirtualMachineInstance) error {
 
 // Unmount unmounts all container disks of a given VMI.
 func (m *mounter) Unmount(vmi *v1.VirtualMachineInstance) error {
+	log.DefaultLogger().Object(vmi).Infof("Container disk Unmount called for VMI %s (UID: %s)", vmi.Name, vmi.UID)
 	if vmi.UID == "" {
 		return nil
 	}
@@ -425,7 +445,7 @@ func (m *mounter) mountKernelArtifacts(vmi *v1.VirtualMachineInstance, verify bo
 	if err != nil {
 		return fmt.Errorf("failed to get disk target dir: %v", err)
 	}
-	if err := safepath.MkdirAtNoFollow(targetDir, containerdisk.KernelBootName, 0755); err != nil {
+	if err := safepath.MkdirAtNoFollow(targetDir, containerdisk.KernelBootName, 0o755); err != nil {
 		if !os.IsExist(err) {
 			return err
 		}
@@ -435,7 +455,7 @@ func (m *mounter) mountKernelArtifacts(vmi *v1.VirtualMachineInstance, verify bo
 	if err != nil {
 		return err
 	}
-	if err := safepath.ChpermAtNoFollow(targetDir, 0, 0, 0755); err != nil {
+	if err := safepath.ChpermAtNoFollow(targetDir, 0, 0, 0o755); err != nil {
 		return err
 	}
 
@@ -460,7 +480,7 @@ func (m *mounter) mountKernelArtifacts(vmi *v1.VirtualMachineInstance, verify bo
 	var targetKernelPath *safepath.Path
 
 	if kb.InitrdPath != "" {
-		if err := safepath.TouchAtNoFollow(targetDir, filepath.Base(kb.InitrdPath), 0655); err != nil && !os.IsExist(err) {
+		if err := safepath.TouchAtNoFollow(targetDir, filepath.Base(kb.InitrdPath), 0o655); err != nil && !os.IsExist(err) {
 			return err
 		}
 
@@ -471,7 +491,7 @@ func (m *mounter) mountKernelArtifacts(vmi *v1.VirtualMachineInstance, verify bo
 	}
 
 	if kb.KernelPath != "" {
-		if err := safepath.TouchAtNoFollow(targetDir, filepath.Base(kb.KernelPath), 0655); err != nil && !os.IsExist(err) {
+		if err := safepath.TouchAtNoFollow(targetDir, filepath.Base(kb.KernelPath), 0o655); err != nil && !os.IsExist(err) {
 			return err
 		}
 
@@ -685,7 +705,6 @@ func getDigest(imageFile *safepath.Path) (uint32, error) {
 }
 
 func (m *mounter) ComputeChecksums(vmi *v1.VirtualMachineInstance) (*DiskChecksums, error) {
-
 	diskChecksums := &DiskChecksums{
 		ContainerDiskChecksums: map[string]uint32{},
 	}

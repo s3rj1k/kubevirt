@@ -648,6 +648,7 @@ func (c *MigrationTargetController) unmountVolumes(vmi *v1.VirtualMachineInstanc
 		return err
 	}
 
+	c.logger.Object(vmi).Info("Unmounting container disks during migration target unmountVolumes")
 	if err = c.containerDiskMounter.Unmount(vmi); err != nil {
 		return err
 	}
