@@ -1505,6 +1505,7 @@ func (c *VirtualMachineController) processVmCleanup(vmi *v1.VirtualMachineInstan
 	c.downwardMetricsManager.StopServer(vmi)
 
 	// Unmount container disks and clean up remaining files
+	c.logger.Object(vmi).Info("Unmounting container disks during processVmCleanup")
 	if err := c.containerDiskMounter.Unmount(vmi); err != nil {
 		return err
 	}
