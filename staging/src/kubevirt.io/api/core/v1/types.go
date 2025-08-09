@@ -1328,6 +1328,11 @@ const (
 	// in which freePageReporting is always disabled.
 	FreePageReportingDisabledAnnotation string = "kubevirt.io/free-page-reporting-disabled"
 
+	// AdditionalMemoryOverheadAnnotation allows specifying additional memory overhead as a resource.Quantity
+	// that will be added to the calculated memory overhead for the VMI pod.
+	// Example: "kubevirt.io/additional-memory-overhead": "256Mi"
+	AdditionalMemoryOverheadAnnotation string = "kubevirt.io/additional-memory-overhead"
+
 	// VirtualMachinePodCPULimitsLabel indicates VMI pod CPU resource limits
 	VirtualMachinePodCPULimitsLabel string = "kubevirt.io/vmi-pod-cpu-resource-limits"
 	// VirtualMachinePodMemoryRequestsLabel indicates VMI pod Memory resource requests
