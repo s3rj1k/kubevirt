@@ -36,6 +36,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -118,8 +119,10 @@ const (
 	hotplugMinRequiredFreePorts            = 3
 )
 
-const maxConcurrentHotplugHostDevices = 1
-const maxConcurrentMemoryDumps = 1
+const (
+	maxConcurrentHotplugHostDevices = 1
+	maxConcurrentMemoryDumps        = 1
+)
 
 type contextStore struct {
 	ctx    context.Context
@@ -224,14 +227,16 @@ func (s pausedVMIs) contains(uid types.UID) bool {
 
 func NewLibvirtDomainManager(connection cli.Connection, virtShareDir, ephemeralDiskDir string, agentStore *agentpoller.AsyncAgentStore,
 	ovmfPath string, ephemeralDiskCreator ephemeraldisk.EphemeralDiskCreatorInterface, metadataCache *metadata.Cache,
-	stopChan chan struct{}, diskMemoryLimitBytes int64, cpuSetGetter func() ([]int, error), imageVolumeEnabled bool) (DomainManager, error) {
+	stopChan chan struct{}, diskMemoryLimitBytes int64, cpuSetGetter func() ([]int, error), imageVolumeEnabled bool,
+) (DomainManager, error) {
 	directIOChecker := converter.NewDirectIOChecker()
 	return newLibvirtDomainManager(connection, virtShareDir, ephemeralDiskDir, agentStore, ovmfPath, ephemeralDiskCreator, directIOChecker, metadataCache, stopChan, diskMemoryLimitBytes, cpuSetGetter, imageVolumeEnabled)
 }
 
 func newLibvirtDomainManager(connection cli.Connection, virtShareDir, ephemeralDiskDir string, agentStore *agentpoller.AsyncAgentStore, ovmfPath string,
 	ephemeralDiskCreator ephemeraldisk.EphemeralDiskCreatorInterface, directIOChecker converter.DirectIOChecker, metadataCache *metadata.Cache,
-	stopChan chan struct{}, diskMemoryLimitBytes int64, cpuSetGetter func() ([]int, error), imageVolumeEnabled bool) (DomainManager, error) {
+	stopChan chan struct{}, diskMemoryLimitBytes int64, cpuSetGetter func() ([]int, error), imageVolumeEnabled bool,
+) (DomainManager, error) {
 	manager := LibvirtDomainManager{
 		diskMemoryLimitBytes: diskMemoryLimitBytes,
 		virConn:              connection,
@@ -568,7 +573,7 @@ func (l *LibvirtDomainManager) UpdateVCPUs(vmi *v1.VirtualMachineInstance, optio
 }
 
 func maxSlice(slice []int) int {
-	var max = slice[0]
+	max := slice[0]
 	for _, value := range slice {
 		if max < value {
 			max = value
@@ -977,7 +982,6 @@ func shouldExpandOffline(disk api.Disk) bool {
 }
 
 func (l *LibvirtDomainManager) generateConverterContext(vmi *v1.VirtualMachineInstance, allowEmulation bool, options *cmdv1.VirtualMachineOptions, isMigrationTarget bool) (*converter.ConverterContext, error) {
-
 	logger := log.Log.Object(vmi)
 
 	podCPUSet, err := l.cpuSetGetter()
@@ -1454,7 +1458,7 @@ func checkIfDiskReadyToUseFunc(filename string) (bool, error) {
 		return false, err
 	}
 	if (info.Mode() & os.ModeDevice) != 0 {
-		file, err := os.OpenFile(filename, os.O_RDONLY, 0600)
+		file, err := os.OpenFile(filename, os.O_RDONLY, 0o600)
 		if err != nil {
 			log.DefaultLogger().V(1).Infof("Unable to open file: %v", err)
 			return false, nil
@@ -1465,7 +1469,7 @@ func checkIfDiskReadyToUseFunc(filename string) (bool, error) {
 		return true, nil
 	}
 	// Before attempting to attach, ensure we can open the file
-	file, err := os.OpenFile(filename, os.O_RDWR, 0600)
+	file, err := os.OpenFile(filename, os.O_RDWR, 0o600)
 	if err != nil {
 		return false, nil
 	}
@@ -2095,7 +2099,6 @@ func (l *LibvirtDomainManager) DeleteVMI(vmi *v1.VirtualMachineInstance) error {
 }
 
 func (l *LibvirtDomainManager) ListAllDomains() ([]*api.Domain, error) {
-
 	doms, err := l.virConn.ListAllDomains(libvirt.CONNECT_LIST_DOMAINS_ACTIVE | libvirt.CONNECT_LIST_DOMAINS_INACTIVE)
 	if err != nil {
 		return nil, err
@@ -2208,6 +2211,20 @@ func (l *LibvirtDomainManager) getDomainDirtyRateStats(calculationDuration time.
 }
 
 func formatPCIAddressStr(address *api.Address) string {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Log.Errorf("PANIC in formatPCIAddressStr: %v", r)
+			log.Log.Errorf("Stack trace:\n%s", debug.Stack())
+			panic(r) // Re-panic to preserve original behavior
+		}
+	}()
+
+	log.Log.Infof("formatPCIAddressStr called with Domain='%s'(%d), Bus='%s'(%d), Slot='%s'(%d), Function='%s'(%d)",
+		address.Domain, len(address.Domain),
+		address.Bus, len(address.Bus),
+		address.Slot, len(address.Slot),
+		address.Function, len(address.Function))
+
 	return fmt.Sprintf("%s:%s:%s.%s", address.Domain[2:], address.Bus[2:], address.Slot[2:], address.Function[2:])
 }
 
@@ -2231,8 +2248,23 @@ func addToDeviceMetadata(metadataType cloudinit.DeviceMetadataType, address *api
 }
 
 func getDeviceNUMACPUAffinity(dev api.HostDevice, vmi *v1.VirtualMachineInstance, domainSpec *api.DomainSpec) (numaNodePtr *uint32, cpuList []uint32) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Log.Errorf("PANIC in getDeviceNUMACPUAffinity: %v", r)
+			log.Log.Errorf("Stack trace:\n%s", debug.Stack())
+			log.Log.Errorf("Device info: Type=%s, Source.Address=%v", dev.Type, dev.Source.Address)
+			if vmi != nil {
+				log.Log.Errorf("VMI: %s/%s", vmi.Namespace, vmi.Name)
+			}
+			panic(r) // Re-panic to preserve original behavior
+		}
+	}()
+
+	log.Log.Infof("getDeviceNUMACPUAffinity called for device type=%s", dev.Type)
 	if dev.Source.Address != nil {
+		log.Log.Infof("Device has address, calling formatPCIAddressStr...")
 		pciAddress := formatPCIAddressStr(dev.Source.Address)
+		log.Log.Infof("Got PCI address: %s", pciAddress)
 		if vmi.Spec.Domain.CPU.NUMA != nil && vmi.Spec.Domain.CPU.NUMA.GuestMappingPassthrough != nil {
 			if numa, err := hardware.GetDeviceNumaNode(pciAddress); err == nil {
 				numaNodePtr = numa
@@ -2244,6 +2276,8 @@ func getDeviceNUMACPUAffinity(dev api.HostDevice, vmi *v1.VirtualMachineInstance
 				return
 			}
 		}
+	} else {
+		log.Log.Infof("Device has no address, skipping PCI address formatting")
 	}
 	return
 }
@@ -2576,7 +2610,7 @@ func (l *LibvirtDomainManager) linkImageVolumeFilePaths(vmi *v1.VirtualMachineIn
 	if kutil.HasKernelBootContainerImage(vmi) {
 		kb := vmi.Spec.Domain.Firmware.KernelBoot
 
-		err := os.MkdirAll(containerdisk.GetKernelBootArtifactPathFromLauncherView(""), 0755)
+		err := os.MkdirAll(containerdisk.GetKernelBootArtifactPathFromLauncherView(""), 0o755)
 		if err != nil {
 			return fmt.Errorf("error creating dir for KernelPath: %v", err)
 		}

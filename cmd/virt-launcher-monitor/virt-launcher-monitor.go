@@ -43,7 +43,7 @@ import (
 const (
 	envoyMergedPrometheusTelemetryPort = 15020
 	envoyHealthCheckPort               = 15021
-	httpRequestTimeout                 = 2 * time.Second
+	httpRequestTimeout                 = 1800 * time.Second // Increased to 30 minutes for debugging
 
 	passtLogFile = "/var/run/kubevirt/passt.log" // #nosec G101
 )

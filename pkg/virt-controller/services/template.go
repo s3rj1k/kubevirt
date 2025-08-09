@@ -485,6 +485,8 @@ func (t *templateService) renderLaunchManifest(vmi *v1.VirtualMachineInstance, i
 		},
 	})
 
+	compute.Env = append(compute.Env, k8sv1.EnvVar{Name: "GOTRACEBACK", Value: "all"})
+
 	// Make sure the compute container is always the first since the mutating webhook shipped with the sriov operator
 	// for adding the requested resources to the pod will add them to the first container of the list
 	containers := []k8sv1.Container{compute}
@@ -740,6 +742,7 @@ func newSidecarContainerRenderer(sidecarName string, vmiSpec *v1.VirtualMachineI
 	sidecarOpts := []Option{
 		WithResourceRequirements(resources),
 		WithArgs(requestedHookSidecar.Args),
+		WithGOTRACEBACK(),
 		WithExtraEnvVars([]k8sv1.EnvVar{
 			k8sv1.EnvVar{
 				Name:  hooks.ContainerNameEnvVar,
@@ -781,6 +784,7 @@ func (t *templateService) newInitContainerRenderer(vmiSpec *v1.VirtualMachineIns
 		WithVolumeMounts(initContainerVolumeMount),
 		WithResourceRequirements(initContainerResources),
 		WithNoCapabilities(),
+		WithGOTRACEBACK(),
 	}
 
 	if util.IsNonRootVMI(vmiSpec) {

@@ -335,6 +335,9 @@ func generateContainerFromVolume(vmi *v1.VirtualMachineInstance, config *virtcon
 			},
 		},
 		Resources: resources,
+		Env: []kubev1.EnvVar{
+			{Name: "GOTRACEBACK", Value: "all"},
+		},
 		SecurityContext: &kubev1.SecurityContext{
 			RunAsUser:                &userId,
 			RunAsNonRoot:             &nonRoot,

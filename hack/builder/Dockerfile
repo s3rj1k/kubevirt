@@ -67,7 +67,7 @@ RUN mkdir -p /gimme && curl -sL \
     https://raw.githubusercontent.com/travis-ci/gimme/master/gimme | \
     HOME=/gimme bash >> /etc/profile.d/gimme.sh
 
-ENV GOPATH="/go" GOBIN="/usr/bin" GO111MODULE="on"
+ENV GOPATH="/go" GOBIN="/usr/bin" GO111MODULE="on" GOTRACEBACK="all"
 
 # Install persistent go packages
 RUN set -x && \

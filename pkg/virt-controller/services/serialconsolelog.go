@@ -46,6 +46,7 @@ func generateSerialConsoleLogContainer(vmi *v1.VirtualMachineInstance, image str
 		}
 
 		guestConsoleLog.Env = append(guestConsoleLog.Env, k8sv1.EnvVar{Name: ENV_VAR_VIRT_LAUNCHER_LOG_VERBOSITY, Value: fmt.Sprint(virtLauncherLogVerbosity)})
+		guestConsoleLog.Env = append(guestConsoleLog.Env, k8sv1.EnvVar{Name: "GOTRACEBACK", Value: "all"})
 
 		return guestConsoleLog
 	}

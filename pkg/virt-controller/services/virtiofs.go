@@ -131,6 +131,9 @@ func generateContainerFromVolume(volume *v1.Volume, image string, resources k8sv
 		Args:            args,
 		VolumeMounts:    volumeMounts,
 		Resources:       resources,
+		Env: []k8sv1.EnvVar{
+			{Name: "GOTRACEBACK", Value: "all"},
+		},
 		SecurityContext: &k8sv1.SecurityContext{
 			RunAsUser:                pointer.P(int64(util.NonRootUID)),
 			RunAsGroup:               pointer.P(int64(util.NonRootUID)),

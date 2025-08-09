@@ -26,6 +26,7 @@ ENV WORKSPACE=/home/${USER_NAME}
 ENV DATA_DIR=${WORKSPACE}/data
 ENV RESULTS_DIR=${DATA_DIR}/results
 ENV TEST_MANIFESTS_DIR=${DATA_DIR}/manifests
+ENV GOTRACEBACK=all
 
 # Create non-root user and install dependencies
 RUN yum install -y findutils && \

@@ -508,13 +508,17 @@ var _ = Describe("Template", func() {
 				Expect(pod.Spec.Subdomain).To(BeEmpty())
 
 				hasPodNameEnvVar := false
+				hasGOTRACEBACKEnvVar := false
 				for _, ev := range pod.Spec.Containers[0].Env {
 					if ev.Name == ENV_VAR_POD_NAME && ev.ValueFrom.FieldRef.FieldPath == "metadata.name" {
 						hasPodNameEnvVar = true
-						break
+					}
+					if ev.Name == "GOTRACEBACK" && ev.Value == "all" {
+						hasGOTRACEBACKEnvVar = true
 					}
 				}
 				Expect(hasPodNameEnvVar).To(BeTrue())
+				Expect(hasGOTRACEBACKEnvVar).To(BeTrue())
 
 			},
 				Entry("on amd64", "amd64", "/usr/share/OVMF"),

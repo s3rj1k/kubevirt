@@ -192,6 +192,12 @@ func WithExtraEnvVars(envVars []k8sv1.EnvVar) Option {
 	}
 }
 
+func WithGOTRACEBACK() Option {
+	return func(renderer *ContainerSpecRenderer) {
+		renderer.extraEnvVars = append(renderer.extraEnvVars, k8sv1.EnvVar{Name: "GOTRACEBACK", Value: "all"})
+	}
+}
+
 func xdgEnvironmentVariables() []k8sv1.EnvVar {
 	const varRun = "/var/run"
 	return []k8sv1.EnvVar{
