@@ -1,0 +1,163 @@
+name: Build and Push KubeVirt
+
+on:
+  push:
+    branches:
+      - slow-pci-devices
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to build (branch, tag, or commit SHA)'
+        required: true
+        default: 'main'
+        type: string
+      docker_tag:
+        description: 'Docker tag for images'
+        required: true
+        default: 'latest'
+        type: string
+      push_manifests:
+        description: 'Generate and push manifests'
+        required: true
+        default: true
+        type: boolean
+
+env:
+  DOCKER_PREFIX: ghcr.io/${{ github.repository_owner }}
+  REGISTRY_USERNAME: ${{ github.actor }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.ref || github.ref }}
+        fetch-depth: 0
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Free up disk space
+      run: |
+        # Remove unnecessary packages and clean up
+        sudo apt-get clean
+        sudo apt-get autoremove -y
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/local/share/boost
+        sudo rm -rf /usr/lib/jvm
+        sudo rm -rf /opt/az
+        # Remove Docker images to free space
+        docker system prune -af --volumes
+        # Check available space
+        df -h
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          pkg-config \
+          libvirt-dev \
+          libseccomp-dev \
+          qemu-utils \
+          cpio \
+          rsync
+
+    - name: Set environment variables
+      run: |
+        echo "DOCKER_PREFIX=${{ env.DOCKER_PREFIX }}" >> $GITHUB_ENV
+        echo "DOCKER_TAG=${{ inputs.docker_tag || 'latest' }}" >> $GITHUB_ENV
+        echo "KUBEVIRT_PROVIDER=external" >> $GITHUB_ENV
+        echo "ARCHITECTURE=amd64" >> $GITHUB_ENV
+
+    - name: Build KubeVirt
+      run: |
+        export GOARCH=amd64
+        export GOOS=linux
+        # Clean bazel cache to prevent space issues
+        bazel clean --expunge || true
+        make
+
+    - name: Push core images individually
+      run: |
+        # Core KubeVirt components - push individually to avoid disk space issues
+        components=(
+          "push-virt-operator"
+          "push-virt-api"
+          "push-virt-controller"
+          "push-virt-handler"
+          "push-virt-launcher"
+        )
+
+        # Extract registry parts for bazel variables
+        DOCKER_REGISTRY="ghcr.io"
+        DOCKER_ORG="${{ github.repository_owner }}"
+        DOCKER_TAG="${{ inputs.docker_tag || 'latest' }}"
+
+        for target in "${components[@]}"; do
+          echo "Building and pushing with target: $target..."
+          bazel run //:$target \
+            --define container_prefix=${DOCKER_REGISTRY} \
+            --define image_prefix=${DOCKER_ORG}/ \
+            --define container_tag=${DOCKER_TAG} \
+            || echo "Failed to push $target, continuing..."
+          # Clean up after each push to save space
+          docker system prune -f --volumes || true
+          bazel clean || true
+          echo "Completed $target, remaining space:"
+          df -h | grep -E '(Filesystem|/$)'
+        done
+      env:
+        DOCKER_PREFIX: ${{ env.DOCKER_PREFIX }}
+        DOCKER_TAG: ${{ inputs.docker_tag || 'latest' }}
+
+    - name: Generate and push manifests
+      if: inputs.push_manifests != false
+      run: |
+        make manifests
+      env:
+        DOCKER_PREFIX: ${{ env.DOCKER_PREFIX }}
+        DOCKER_TAG: ${{ inputs.docker_tag || 'latest' }}
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: kubevirt-amd64-${{ inputs.docker_tag || 'latest' }}
+        path: |
+          _out/
+          manifests/generated/
+        retention-days: 7
+
+    - name: Create release summary
+      run: |
+        echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "- **Ref**: ${{ inputs.ref || github.ref }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Architecture**: amd64" >> $GITHUB_STEP_SUMMARY
+        echo "- **Docker Tag**: ${{ inputs.docker_tag || 'latest' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Registry**: ${{ env.DOCKER_PREFIX }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Manifests Generated**: ${{ inputs.push_manifests != false }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Core Images Pushed" >> $GITHUB_STEP_SUMMARY
+        echo "- \`${{ env.DOCKER_PREFIX }}/virt-operator:${{ inputs.docker_tag || 'latest' }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`${{ env.DOCKER_PREFIX }}/virt-api:${{ inputs.docker_tag || 'latest' }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`${{ env.DOCKER_PREFIX }}/virt-controller:${{ inputs.docker_tag || 'latest' }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`${{ env.DOCKER_PREFIX }}/virt-handler:${{ inputs.docker_tag || 'latest' }}\` (contains PCI fix)" >> $GITHUB_STEP_SUMMARY
+        echo "- \`${{ env.DOCKER_PREFIX }}/virt-launcher:${{ inputs.docker_tag || 'latest' }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "> **Note**: Only core components pushed individually to avoid disk space issues" >> $GITHUB_STEP_SUMMARY
+
